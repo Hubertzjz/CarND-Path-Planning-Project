@@ -15,7 +15,7 @@ using std::string;
 using std::vector;
 
 int get_lane(float d){
-    
+    // get current lane number
     int lane;
     if(d > 0 && d <= 4){
         lane = 0;
@@ -29,7 +29,7 @@ int get_lane(float d){
 }
 
 float lane_speed(int lane, int curr_lane, float car_s, vector< vector<double> > sensor_fusion){
-    
+    // get lane speed
     for(int i = 0; i < sensor_fusion.size(); ++i){
         
         float d = sensor_fusion[i][6];
@@ -41,18 +41,17 @@ float lane_speed(int lane, int curr_lane, float car_s, vector< vector<double> > 
             double speed = sqrt(vx * vx + vy * vy);
             double s = sensor_fusion[i][5];
             
-            if(lane == curr_lane){
+            if(lane == curr_lane){ // only search car ahead on our current lane
                 if(s > car_s && (s - car_s) < 30){
                     //std::cout << "current lane speed: " << speed << " dist:" << (s - car_s) << std::endl;
                     return speed;
                 }
-            } else {
+            } else { // search 50m ahead and 20m behind of ego car on other lanes
                 if((s - car_s) < 50 && (s - car_s) > -20){
                     //std::cout << "lane: " << lane << " speed: " << speed << " dist:" << fabs(s - car_s) << std::endl;
                     return speed;
                 }
             }
-            
         }
     }
     
@@ -60,7 +59,7 @@ float lane_speed(int lane, int curr_lane, float car_s, vector< vector<double> > 
 }
 
 float get_vehicle_ahead(int lane, int prev_size, vector< vector<double> > sensor_fusion, float car_s){
-        
+    // search for car ahead of our future position (within 50m)
     float ds = 50;
     float inquired_car_s = -1.0;
     
@@ -88,7 +87,7 @@ float get_vehicle_ahead(int lane, int prev_size, vector< vector<double> > sensor
 }
 
 float get_vehicle_behind(int lane, int prev_size, vector< vector<double> > sensor_fusion, float car_s){
-    
+    // search for car behind of our future position (within 50m)
     float ds = -50;
     float inquired_car_s = -1.0;
     
@@ -116,7 +115,7 @@ float get_vehicle_behind(int lane, int prev_size, vector< vector<double> > senso
 }
 
 vector<string> successor_states(string state, int curr_lane, int prev_size, float car_speed, vector< vector<double> > sensor_fusion, float car_s){
-    
+    // generate possible successor states from current state
     vector<string> states;
     
     if(state.compare("KL") == 0 && (get_vehicle_ahead(curr_lane, prev_size, sensor_fusion, car_s) != -1) && car_speed <= 45){
@@ -127,7 +126,7 @@ vector<string> successor_states(string state, int curr_lane, int prev_size, floa
             states.push_back("LCR");
         }
     }
-    
+    // if current state is "LCL" or "LCR", return "KL"
     states.push_back("KL");
     
     return states;
@@ -137,6 +136,7 @@ vector<double> realize_next_state(string& state, int curr_lane, int prev_size, v
     
     // std::cout << "current lane: " << curr_lane << std::endl;
     
+    // Keep lane command
     float velocity = lane_speed(curr_lane, curr_lane, car_s, sensor_fusion) / 0.447;
     if(velocity < 0){velocity = 49.5;};
     int lane = curr_lane;
@@ -146,22 +146,26 @@ vector<double> realize_next_state(string& state, int curr_lane, int prev_size, v
         end_path_s = car_s;
     }
     
-    if (best_next_state.compare("LCL") == 0){
+    if (best_next_state.compare("LCL") == 0){ // Lane change left command
         
+        // get vehicle ahead and behind in the next lane
         float s_ahead = get_vehicle_ahead(curr_lane - 1, prev_size, sensor_fusion, end_path_s);
         float s_behind = get_vehicle_behind(curr_lane - 1, prev_size, sensor_fusion, end_path_s);
         
+        // change lane to left when safe, speed set to lane speed
         if((s_ahead == -1.0 || (s_ahead - end_path_s) > 5) && (s_behind == -1.0 || (s_behind - end_path_s) < -5)){
             velocity = lane_speed(curr_lane - 1, curr_lane, car_s, sensor_fusion) / 0.447;
             if(velocity < 0){velocity = 49.5;}
             lane = curr_lane - 1;
             state = "LCL";
         }
-    } else if (best_next_state.compare("LCR") == 0){
+    } else if (best_next_state.compare("LCR") == 0){ // Lane change right command
         
+        // get vehicle ahead and behind in the next lane
         float s_ahead = get_vehicle_ahead(curr_lane + 1, prev_size, sensor_fusion, end_path_s);
         float s_behind = get_vehicle_behind(curr_lane + 1, prev_size, sensor_fusion, end_path_s);
         
+        // change lane to right when safe, speed set to lane speed
         if((s_ahead == -1.0 || (s_ahead - end_path_s) > 5) && (s_behind == -1.0 || (s_behind - end_path_s) < -5)){
             velocity = lane_speed(curr_lane + 1, curr_lane, car_s, sensor_fusion) / 0.447;
             if(velocity < 0){velocity = 49.5;}
@@ -174,7 +178,7 @@ vector<double> realize_next_state(string& state, int curr_lane, int prev_size, v
 }
 
 float calculate_cost(int curr_lane, float car_s, string possible_state, vector< vector<double> > sensor_fusion){
-    
+    // calculate state cost
     float cost;
     int d_lane;
     if(possible_state.compare("KL") == 0){
@@ -187,10 +191,11 @@ float calculate_cost(int curr_lane, float car_s, string possible_state, vector< 
     
     int next_lane = curr_lane + d_lane;
     
+    // determine speed cost (if intended lane speed is high, cost is low)
     float final_lane_speed = lane_speed(next_lane, curr_lane, car_s, sensor_fusion);
     
+    // determine adjacent car cost (if cars on intended lane are near to us, cost is high)
     float s_dist = 9999999;
-    
     for(int i = 0; i < sensor_fusion.size(); ++i){
         float d = sensor_fusion[i][6];
         if(d < (4 * next_lane + 4) && d > (4 * next_lane)){
@@ -201,17 +206,18 @@ float calculate_cost(int curr_lane, float car_s, string possible_state, vector< 
         }
     }
     
-    if(final_lane_speed < 0){
+    // calculate final cost
+    if(final_lane_speed < 0){ // if no car's ahead, don't change lane
         cost = 0;
     } else {
-        cost = (50 - final_lane_speed) / 50 / s_dist;
+        cost = (50 - final_lane_speed) / 50 / s_dist; // from 0 to 1
     }
     
     return cost * 100;
 }
 
 vector<double> choose_next_state(int prev_size, string& state, double car_speed, float car_d, vector< vector<double> > sensor_fusion, float car_s, float end_path_s){
-    
+    // choose best next state
     int curr_lane = get_lane(car_d);
     
     vector<string> possible_successor_states = successor_states(state, curr_lane, prev_size, car_speed, sensor_fusion, car_s);
@@ -333,6 +339,7 @@ int main() {
           json msgJson;
           
           /*
+          // code from project walk through
           if(prev_size > 0){
               car_s = end_path_s;
           }
@@ -370,6 +377,7 @@ int main() {
           }
           */
           
+          // call FSM and returns velocity and lane number referneces
           vector<double> refs = choose_next_state(prev_size, state, car_speed, car_d, sensor_fusion, car_s, end_path_s);
           
           double velocity = refs[0];
@@ -378,6 +386,7 @@ int main() {
           //std::cout << state << std::endl;
           //std::cout << "vel: " << velocity << " lane: " << lane_nb << std::endl;
           
+          // smooth accelerate/decelerate
           if(vel_ref > velocity){
               vel_ref -= .224;
           }
@@ -385,13 +394,13 @@ int main() {
               vel_ref += .224;
           }
           
+          // make another action after finished last action (prevent wandering around between lanes)
           int curr_lane = get_lane(car_d);
-          
-          // if((car_d >= 1.5+lane_nb*4) && (card <= 2.5+lane_nb*4)){
           if(lane_nb == curr_lane){
               lane_nb = next_lane;
           }
           
+          // anchor points vector for spline
           vector<double> ptsx;
           vector<double> ptsy;
           
@@ -399,7 +408,7 @@ int main() {
           double ref_y = car_y;
           double ref_yaw = deg2rad(car_yaw);
           
-          // add two points into the path
+          // add two points into the vector
           if(prev_size < 2){
               // find tangent previous points
               double prev_car_x = car_x - cos(car_yaw);
@@ -450,19 +459,21 @@ int main() {
             ptsy[i] = (shift_x * sin(-ref_yaw) + shift_y * cos(-ref_yaw));
           }
           
+          // set spline points
           tk::spline s;
-          
           s.set_points(ptsx, ptsy);
           
+          // path points going into simualtor
           vector<double> next_x_vals;
           vector<double> next_y_vals;
           
+          // copy from previous path for continuity
           for(int i = 0; i < prev_size; ++i){
-              // copy from previous path
               next_x_vals.push_back(previous_path_x[i]);
               next_y_vals.push_back(previous_path_y[i]);
           }
           
+          // get spline value and extend path
           double target_x = 30.0;
           double target_y = s(target_x);
           double target_dist = sqrt(target_x * target_x + target_y * target_y);
